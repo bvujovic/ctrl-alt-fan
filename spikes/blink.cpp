@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-const byte pinLed = 8; // LED on pin 8 for Super Mini ESP32-C2
+const byte pinLed = 8; // LED on pin 8 for Super Mini ESP32-C3
 // const byte pinLed2 = 2;
 
 void setup() {
