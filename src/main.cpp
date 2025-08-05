@@ -17,9 +17,16 @@ const byte resolution = 8; // Resolution for PWM (8 bits, 0-255)
 OneButton btnInterval(pinBtnInterval, true);
 OneButton btnPwm(pinBtnPwm, true);
 
-int idxPwm = 2;                                   // Index for pwms array.
+int idxPwm = 1;                                   // Index for pwms array.
 const byte pwms[] = {51, 102, 153, 204, 255};     // (PWM duty cycle) Different options for fan speed.
 const byte cntPwms = sizeof(pwms) / sizeof(byte); // Number of elements in pwms array.
+
+//idx   -1  0   1   2   3   4
+//sp1   x   51  102 153 204 255     speed/duty cycle for fan
+//pa1   0   2   4   8   16  32      interval in minutes for fan working
+//pa2   x   16  8   4   2   0       accepted instead of pa1
+//sp2   255 204 153 102 51  0       rejected
+//TODO change intervals array to have values defined in pa2. check how clicks will work with it.
 
 int idxInterval = 2;                                        // Index for intervals array. -1 -> fan works non-stop
 byte intervals[] = {2, 4, 8, 16, 32};                       // (minutes) Different options for pause intervals.
@@ -28,11 +35,13 @@ const byte cntIntervals = sizeof(intervals) / sizeof(byte); // Maximum number of
 byte itvWorking = 1;        // (minutes) How much time will fan work.
 ulong msStarted;            // (milliseconds) When was the fan last started.
 ulong msClick = UINT32_MAX; // (milliseconds) Moment when button is clicked.
-bool isWorking;
+bool isWorking;             // Is the fan currently working?
 
 const ulong SEC = 1000;
 const ulong MIN = 60 * SEC;
 
+// digitalWrite for blink() function
+// This function is used to control the on-board LED or any other LED connected to a pin
 void blinkDigitalWrite(byte pin, int value)
 {
     if (isMini && pin == onBoardLed) // If using Super Mini ESP32-C3, invert the LED logic
@@ -41,6 +50,7 @@ void blinkDigitalWrite(byte pin, int value)
         digitalWrite(pin, value);
 }
 
+// Blinks the LED connected to pin for n times
 void blink(byte pin, int n)
 {
     if (n <= 0) // If n is zero, blink once for 1 second
@@ -71,8 +81,16 @@ void fanWorks(bool isOn)
 
 void anyIntervalClick()
 {
+    blink(pinLedInterval, idxInterval + 1);
     msClick = millis();
     fanWorks(true);
+}
+
+void anyPwmClick()
+{
+    blink(pinLedPwm, idxPwm + 1);
+    Serial.println("PWM duty cycle: " + String(pwms[idxPwm]) + "%");
+    fanWorks(true); // Update fan speed immediately
 }
 
 void setup()
@@ -89,12 +107,18 @@ void setup()
     btnInterval.attachClick(
         []()
         {
-            idxInterval++;
-            // If index exceeds the number of intervals, reset it to the last one (max value)
-            if (idxInterval >= cntIntervals)
-                idxInterval = cntIntervals - 1;
+            if (idxInterval < cntIntervals - 1)
+                idxInterval++;
             anyIntervalClick();
             Serial.println("Next interval: " + String(intervals[idxInterval]) + " minutes");
+        });
+    btnInterval.attachDoubleClick(
+        []()
+        {
+            if (idxInterval > 0)
+                idxInterval--;
+            anyIntervalClick();
+            Serial.println("Fan is working with interval: " + String(intervals[idxInterval]) + " minutes");
         });
     btnInterval.attachLongPressStart(
         []()
@@ -103,21 +127,28 @@ void setup()
             anyIntervalClick();
             Serial.println("Fan works without breaks");
         });
-    btnInterval.attachDoubleClick(
-        []()
-        {
-            anyIntervalClick();
-            Serial.println("Fan is working with interval: " + String(intervals[idxInterval]) + " minutes");
-        });
     btnPwm.attachClick(
         []()
         {
-            idxPwm++;
-            if (idxPwm >= cntPwms)
-                idxPwm = 0;
-            blink(pinLedPwm, idxPwm + 1);
-            Serial.println("PWM duty cycle: " + String(pwms[idxPwm]) + "%");
-            fanWorks(true); // Update fan speed immediately
+            if (idxPwm < cntPwms - 1)
+                idxPwm++;
+            anyPwmClick();
+        });
+    btnPwm.attachDoubleClick(
+        []()
+        {
+            if (idxPwm > 0)
+                idxPwm--;
+            anyPwmClick();
+        });
+    btnPwm.attachLongPressStart(
+        []()
+        {
+            if (idxPwm < cntPwms - 1)
+                idxPwm = cntPwms - 1; // Reset index to the last PWM value (maximum speed)
+            else
+                idxPwm = 0; // If already at max, reset to minimum speed
+            anyPwmClick();
         });
 
     fanWorks(true);
@@ -133,15 +164,11 @@ void loop()
 
     if (idxInterval != -1)
     {
+        // checks if the fan should start or stop based on the intervals
         if (millis() > msStarted + (itvWorking + intervals[idxInterval]) * MIN && !isWorking)
             fanWorks(true);
         if (millis() > msStarted + itvWorking * MIN && isWorking)
             fanWorks(false);
-    }
-    if (msClick != UINT32_MAX && millis() > msClick + SEC)
-    {
-        blink(pinLedInterval, idxInterval + 1);
-        msClick = UINT32_MAX;
     }
 
     btnInterval.tick();
