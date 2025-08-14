@@ -17,25 +17,24 @@ const byte resolution = 8; // Resolution for PWM (8 bits, 0-255)
 OneButton btnInterval(pinBtnInterval, true);
 OneButton btnPwm(pinBtnPwm, true);
 
-int idxPwm = 1;                                   // Index for pwms array.
+int idxPwm;                                       // Index for pwms array.
 const byte pwms[] = {51, 102, 153, 204, 255};     // (PWM duty cycle) Different options for fan speed.
 const byte cntPwms = sizeof(pwms) / sizeof(byte); // Number of elements in pwms array.
 
-//idx   -1  0   1   2   3   4
-//sp1   x   51  102 153 204 255     speed/duty cycle for fan
-//pa1   0   2   4   8   16  32      interval in minutes for fan working
-//pa2   x   16  8   4   2   0       accepted instead of pa1
-//sp2   255 204 153 102 51  0       rejected
-//TODO change intervals array to have values defined in pa2. check how clicks will work with it.
+// idx   -1  0   1   2   3   4
+// sp1   x   51  102 153 204 255     speed/duty cycle for fan
+// pa1   0   2   4   8   16  32      interval in minutes for fan working
+// pa2   x   16  8   4   2   0       rejected
+// sp2   255 204 153 102 51  0       rejected
 
-int idxInterval = 2;                                        // Index for intervals array. -1 -> fan works non-stop
+int idxInterval;                                            // Index for intervals array. -1 -> fan works non-stop
 byte intervals[] = {2, 4, 8, 16, 32};                       // (minutes) Different options for pause intervals.
 const byte cntIntervals = sizeof(intervals) / sizeof(byte); // Maximum number of intervals.
 
-byte itvWorking = 1;        // (minutes) How much time will fan work.
-ulong msStarted;            // (milliseconds) When was the fan last started.
-ulong msClick = UINT32_MAX; // (milliseconds) Moment when button is clicked.
-bool isWorking;             // Is the fan currently working?
+byte itvWorking = 1; // (minutes) How much time will fan work.
+ulong msStarted;     // (milliseconds) When was the fan last started.
+bool isWorking;      // Is the fan currently working?
+//-ulong msClick = UINT32_MAX; // (milliseconds) Moment when button is clicked.
 
 const ulong SEC = 1000;
 const ulong MIN = 60 * SEC;
@@ -81,16 +80,16 @@ void fanWorks(bool isOn)
 
 void anyIntervalClick()
 {
-    blink(pinLedInterval, idxInterval + 1);
-    msClick = millis();
     fanWorks(true);
+    blink(pinLedInterval, idxInterval + 1);
+    //- msClick = millis();
 }
 
 void anyPwmClick()
 {
-    blink(pinLedPwm, idxPwm + 1);
     Serial.println("PWM duty cycle: " + String(pwms[idxPwm]) + "%");
-    fanWorks(true); // Update fan speed immediately
+    fanWorks(true);
+    blink(pinLedPwm, idxPwm + 1);
 }
 
 void setup()
@@ -99,10 +98,18 @@ void setup()
     Serial.println("\nFan Control Setup");
     pinMode(pinLedInterval, OUTPUT);
     pinMode(pinLedPwm, OUTPUT);
-    pinMode(pinFan, OUTPUT);
+    // pinMode(pinFan, OUTPUT);
+    // digitalWrite(pinFan, LOW); // Ensure the fan is off initially
     ledcSetup(pwmChannel, freq, resolution); // Configure channel
     ledcAttachPin(pinFan, pwmChannel);       // Attach pin to channel
-    ledcWrite(pwmChannel, 0);                // Set initial duty cycle to 0
+    // ledcWrite(pwmChannel, 0);                // Set initial duty cycle to 0
+    idxInterval = 1;
+    idxPwm = 1;
+    fanWorks(true);
+    blink(pinLedPwm, idxPwm + 1);
+    Serial.println("Initial PWM duty cycle: " + String(pwms[idxPwm]) + "%");
+    blink(pinLedInterval, idxInterval + 1);
+    Serial.println("Initial interval: " + String(intervals[idxInterval]) + " minutes");
 
     btnInterval.attachClick(
         []()
@@ -132,6 +139,8 @@ void setup()
         {
             if (idxPwm < cntPwms - 1)
                 idxPwm++;
+            else
+                idxPwm = 0; // If already at max, reset to minimum speed
             anyPwmClick();
         });
     btnPwm.attachDoubleClick(
@@ -146,16 +155,12 @@ void setup()
         {
             if (idxPwm < cntPwms - 1)
                 idxPwm = cntPwms - 1; // Reset index to the last PWM value (maximum speed)
-            else
-                idxPwm = 0; // If already at max, reset to minimum speed
+            // else
+            //     idxPwm = 0; // If already at max, reset to minimum speed
             anyPwmClick();
+            idxInterval = -1; // Reset index to -1 for non-stop fan operation
+            anyIntervalClick();
         });
-
-    fanWorks(true);
-    blink(pinLedInterval, idxInterval + 1);
-    Serial.println("Initial interval: " + String(intervals[idxInterval]) + " minutes");
-    blink(pinLedPwm, idxPwm + 1);
-    Serial.println("Initial PWM duty cycle: " + String(pwms[idxPwm]) + "%");
 }
 
 void loop()
