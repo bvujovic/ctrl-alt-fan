@@ -1,10 +1,8 @@
-#include <Arduino.h>
-// if DISPLAY_SCREEN is true - current state (speed:pause) will be shown on display
-#define DISPLAY_SCREEN true
+//* Computer fan can be turned ON/OFF on different intervals and made to run
+//* faster or slower via 2 buttons connected to ESP32. 2 LEDs signal current 
+//* state of the fan - how fast it spins and how long is the pause between runs.
 
-#if DISPLAY_SCREEN
-#include <U8g2lib.h> // lib_deps = olikraus/U8g2@^2.36.12
-#endif
+#include <Arduino.h>
 
 const bool isMini = true;               // Set to true for Super Mini ESP32-C3, false for other boards
 const byte onBoardLed = isMini ? 8 : 2; // On-board LED pin
@@ -13,7 +11,7 @@ const byte pinBtnInterval = isMini ? 3 : 16;          // Button for changing int
 const byte pinBtnPwm = isMini ? 4 : 17;               // Button for changing PWM duty cycle
 const byte pinLedInterval = isMini ? onBoardLed : 22; // LED for interval indication
 const byte pinLedPwm = isMini ? 1 : 23;               // LED for PWM duty cycle indication
-const byte pinFan = isMini ? 2 : 18;                  // Fan control pin (PWM output: GPIO 2, 4, or 5)
+const byte pinFan = isMini ? 2 : 18;                  // Fan control pin
 
 const byte pwmChannel = 0; // PWM channel for fan control
 const int freq = 25000;    // Frequency for PWM (25 kHz)
@@ -40,25 +38,11 @@ const byte cntIntervals = sizeof(intervals) / sizeof(byte); // Maximum number of
 byte itvWorking = 1; // (minutes) How much time will fan work.
 ulong msStarted;     // (milliseconds) When was the fan last started.
 bool isWorking;      // Is the fan currently working?
+//-ulong msClick = UINT32_MAX; // (milliseconds) Moment when button is clicked.
 
 const ulong SEC = 1000;
 const ulong MIN = 60 * SEC;
 
-#if DISPLAY_SCREEN
-U8G2_SSD1306_72X40_ER_F_HW_I2C disp(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* clock=*/6, /* data=*/5);
-char dispBuffer[6];
-int dx, dy;
-
-void displayState()
-{
-    int pause = idxInterval == -1 ? 0 : intervals[idxInterval];
-    sprintf(dispBuffer, "%d:%d", idxPwm + 1, pause);
-    dx = (disp.getDisplayWidth() - disp.getStrWidth(dispBuffer)) / 2;
-    disp.clearBuffer();
-    disp.drawStr(dx, dy, dispBuffer);
-    disp.sendBuffer();
-}
-#else
 // digitalWrite for blink() function
 // This function is used to control the on-board LED or any other LED connected to a pin
 void blinkDigitalWrite(byte pin, int value)
@@ -84,7 +68,6 @@ void blink(byte pin, int n)
     }
     blinkDigitalWrite(pin, 0); // Turn off the LED after blinking
 }
-#endif
 
 // start or stop the fan
 void fanWorks(bool isOn)
@@ -102,28 +85,23 @@ void fanWorks(bool isOn)
 void anyIntervalClick()
 {
     fanWorks(true);
-#if DISPLAY_SCREEN
-    displayState();
-#else
     blink(pinLedInterval, idxInterval + 1);
-#endif
+    //- msClick = millis();
 }
 
 void anyPwmClick()
 {
     Serial.println("PWM duty cycle: " + String(pwms[idxPwm]) + "%");
     fanWorks(true);
-#if DISPLAY_SCREEN
-    displayState();
-#else
     blink(pinLedPwm, idxPwm + 1);
-#endif
 }
 
 void setup()
 {
     Serial.begin(115200);
     Serial.println("\nFan Control Setup");
+    pinMode(pinLedInterval, OUTPUT);
+    pinMode(pinLedPwm, OUTPUT);
     // pinMode(pinFan, OUTPUT);
     // digitalWrite(pinFan, LOW); // Ensure the fan is off initially
     ledcSetup(pwmChannel, freq, resolution); // Configure channel
@@ -132,21 +110,10 @@ void setup()
     idxInterval = 1;
     idxPwm = 1;
     fanWorks(true);
-    Serial.println("Initial PWM duty cycle: " + String(pwms[idxPwm]) + "%");
-    Serial.println("Initial interval: " + String(intervals[idxInterval]) + " minutes");
-#if DISPLAY_SCREEN
-    disp.begin();
-    disp.clearBuffer(); // clear the internal memory
-    disp.setFont(u8g2_font_logisoso30_tf);
-    dy = disp.getDisplayHeight() - (disp.getDisplayHeight() - 30) / 2; // 30 is the size of the font - change IN
-    disp.setDisplayRotation(U8G2_R2);                                  // Rotate display 180 degrees (upside down)
-    displayState();
-#else
-    pinMode(pinLedPwm, OUTPUT);
-    pinMode(pinLedInterval, OUTPUT);
     blink(pinLedPwm, idxPwm + 1);
+    Serial.println("Initial PWM duty cycle: " + String(pwms[idxPwm]) + "%");
     blink(pinLedInterval, idxInterval + 1);
-#endif
+    Serial.println("Initial interval: " + String(intervals[idxInterval]) + " minutes");
 
     btnInterval.attachClick(
         []()
@@ -192,6 +159,8 @@ void setup()
         {
             if (idxPwm < cntPwms - 1)
                 idxPwm = cntPwms - 1; // Reset index to the last PWM value (maximum speed)
+            // else
+            //     idxPwm = 0; // If already at max, reset to minimum speed
             anyPwmClick();
             idxInterval = -1; // Reset index to -1 for non-stop fan operation
             anyIntervalClick();
