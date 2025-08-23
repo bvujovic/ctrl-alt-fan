@@ -3,15 +3,15 @@
 Periodic fan. Computer fan is turned ON/OFF on regular intervals.
 
 ## Test device: ESP32-C3, breadboard, fan
-![Test device: ESP32-C3, breadboard, fan](<docs/test device 3.jpg>)
+![Test device: ESP32-C3, breadboard, fan](<docs/test device 4.jpg>)
 
 ## TODO
-- [ ] Improve interface:
-    - [ ] Make clicks for pause intervals and fan speed as **consistent** as possible (click, dbl click, long click)
-    - [ ] Maybe max speed should have idxPwm==-1 and 1 long blink (if there is no display). Reason: consistency with intervals.
-    - [ ] Small display (<ins>ESP32-C3 with built-in display</ins> or separate display) or LED diodes
+- [x] Improve interface:
+    - [x] Make clicks for pause intervals and fan speed as **consistent** as possible (click, dbl click, long click)
+    - [x] Small display (<ins>ESP32-C3 with built-in display</ins> or separate display) or LED diodes
 - [ ] Make final design for the device:
     - [ ] How to turn off device: <ins>switch on separate USB C connector</ins> or make ESP go to deep sleep
+    - [ ] Choose 2 buttons for changing speed and pause interval
 
 ### Clicks
 

@@ -9,10 +9,10 @@
 const bool isMini = true;               // Set to true for Super Mini ESP32-C3, false for other boards
 const byte onBoardLed = isMini ? 8 : 2; // On-board LED pin
 
-const byte pinBtnInterval = isMini ? 3 : 16;          // Button for changing intervals
 const byte pinBtnPwm = isMini ? 4 : 17;               // Button for changing PWM duty cycle
-const byte pinLedInterval = isMini ? onBoardLed : 22; // LED for interval indication
+const byte pinBtnInterval = isMini ? 3 : 16;          // Button for changing intervals
 const byte pinLedPwm = isMini ? 1 : 23;               // LED for PWM duty cycle indication
+const byte pinLedInterval = isMini ? onBoardLed : 22; // LED for interval indication
 const byte pinFan = isMini ? 2 : 18;                  // Fan control pin (PWM output: GPIO 2, 4, or 5)
 
 const byte pwmChannel = 0; // PWM channel for fan control
@@ -20,18 +20,12 @@ const int freq = 25000;    // Frequency for PWM (25 kHz)
 const byte resolution = 8; // Resolution for PWM (8 bits, 0-255)
 
 #include "OneButton.h"
-OneButton btnInterval(pinBtnInterval, true);
 OneButton btnPwm(pinBtnPwm, true);
+OneButton btnInterval(pinBtnInterval, true);
 
 int idxPwm;                                       // Index for pwms array.
 const byte pwms[] = {51, 102, 153, 204, 255};     // (PWM duty cycle) Different options for fan speed.
 const byte cntPwms = sizeof(pwms) / sizeof(byte); // Number of elements in pwms array.
-
-// idx   -1  0   1   2   3   4
-// sp1   x   51  102 153 204 255     speed/duty cycle for fan
-// pa1   0   2   4   8   16  32      interval in minutes for fan working
-// pa2   x   16  8   4   2   0       rejected
-// sp2   255 204 153 102 51  0       rejected
 
 int idxInterval;                                            // Index for intervals array. -1 -> fan works non-stop
 byte intervals[] = {2, 4, 8, 16, 32};                       // (minutes) Different options for pause intervals.
@@ -48,15 +42,20 @@ const ulong MIN = 60 * SEC;
 U8G2_SSD1306_72X40_ER_F_HW_I2C disp(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* clock=*/6, /* data=*/5);
 char dispBuffer[6];
 int dx, dy;
+ulong msDisplayed = 0;
+bool isDisplayOn = true;
 
-void displayState()
+void display()
 {
+    disp.setPowerSave(0);
     int pause = idxInterval == -1 ? 0 : intervals[idxInterval];
     sprintf(dispBuffer, "%d:%d", idxPwm + 1, pause);
     dx = (disp.getDisplayWidth() - disp.getStrWidth(dispBuffer)) / 2;
     disp.clearBuffer();
     disp.drawStr(dx, dy, dispBuffer);
     disp.sendBuffer();
+    msDisplayed = millis();
+    isDisplayOn = true;
 }
 #else
 // digitalWrite for blink() function
@@ -99,48 +98,44 @@ void fanWorks(bool isOn)
         ledcWrite(pwmChannel, 0);
 }
 
-void anyIntervalClick()
-{
-    fanWorks(true);
-#if DISPLAY_SCREEN
-    displayState();
-#else
-    blink(pinLedInterval, idxInterval + 1);
-#endif
-}
-
 void anyPwmClick()
 {
-    Serial.println("PWM duty cycle: " + String(pwms[idxPwm]) + "%");
+    // Serial.println("PWM duty cycle: " + String(pwms[idxPwm]) + "%");
     fanWorks(true);
 #if DISPLAY_SCREEN
-    displayState();
+    display();
 #else
     blink(pinLedPwm, idxPwm + 1);
 #endif
 }
 
+void anyIntervalClick()
+{
+    fanWorks(true);
+#if DISPLAY_SCREEN
+    display();
+#else
+    blink(pinLedInterval, idxInterval + 1);
+#endif
+}
+
 void setup()
 {
-    Serial.begin(115200);
-    Serial.println("\nFan Control Setup");
-    // pinMode(pinFan, OUTPUT);
-    // digitalWrite(pinFan, LOW); // Ensure the fan is off initially
+    // Serial.begin(115200);
     ledcSetup(pwmChannel, freq, resolution); // Configure channel
     ledcAttachPin(pinFan, pwmChannel);       // Attach pin to channel
-    // ledcWrite(pwmChannel, 0);                // Set initial duty cycle to 0
     idxInterval = 1;
     idxPwm = 1;
     fanWorks(true);
-    Serial.println("Initial PWM duty cycle: " + String(pwms[idxPwm]) + "%");
-    Serial.println("Initial interval: " + String(intervals[idxInterval]) + " minutes");
+    // Serial.println("Initial PWM duty cycle: " + String(pwms[idxPwm]) + "%");
+    // Serial.println("Initial interval: " + String(intervals[idxInterval]) + " minutes");
 #if DISPLAY_SCREEN
     disp.begin();
     disp.clearBuffer(); // clear the internal memory
     disp.setFont(u8g2_font_logisoso30_tf);
     dy = disp.getDisplayHeight() - (disp.getDisplayHeight() - 30) / 2; // 30 is the size of the font - change IN
     disp.setDisplayRotation(U8G2_R2);                                  // Rotate display 180 degrees (upside down)
-    displayState();
+    display();
 #else
     pinMode(pinLedPwm, OUTPUT);
     pinMode(pinLedInterval, OUTPUT);
@@ -148,37 +143,19 @@ void setup()
     blink(pinLedInterval, idxInterval + 1);
 #endif
 
-    btnInterval.attachClick(
-        []()
-        {
-            if (idxInterval < cntIntervals - 1)
-                idxInterval++;
-            anyIntervalClick();
-            Serial.println("Next interval: " + String(intervals[idxInterval]) + " minutes");
-        });
-    btnInterval.attachDoubleClick(
-        []()
-        {
-            if (idxInterval > 0)
-                idxInterval--;
-            anyIntervalClick();
-            Serial.println("Fan is working with interval: " + String(intervals[idxInterval]) + " minutes");
-        });
-    btnInterval.attachLongPressStart(
-        []()
-        {
-            idxInterval = -1; // Reset index to -1 for non-stop fan operation
-            anyIntervalClick();
-            Serial.println("Fan works without breaks");
-        });
     btnPwm.attachClick(
         []()
         {
-            if (idxPwm < cntPwms - 1)
-                idxPwm++;
+            if (isDisplayOn)
+            {
+                if (idxPwm < cntPwms - 1)
+                    idxPwm++;
+                else
+                    idxPwm = 0; // If already at max, reset to minimum speed
+                anyPwmClick();
+            }
             else
-                idxPwm = 0; // If already at max, reset to minimum speed
-            anyPwmClick();
+                display();
         });
     btnPwm.attachDoubleClick(
         []()
@@ -196,6 +173,31 @@ void setup()
             idxInterval = -1; // Reset index to -1 for non-stop fan operation
             anyIntervalClick();
         });
+    btnInterval.attachClick(
+        []()
+        {
+            if (isDisplayOn)
+            {
+                if (idxInterval < cntIntervals - 1)
+                    idxInterval++;
+                anyIntervalClick();
+            }
+            else
+                display();
+        });
+    btnInterval.attachDoubleClick(
+        []()
+        {
+            if (idxInterval > 0)
+                idxInterval--;
+            anyIntervalClick();
+        });
+    btnInterval.attachLongPressStart(
+        []()
+        {
+            idxInterval = -1; // Reset index to -1 for non-stop fan operation
+            anyIntervalClick();
+        });
 }
 
 void loop()
@@ -209,6 +211,12 @@ void loop()
             fanWorks(true);
         if (millis() > msStarted + itvWorking * MIN && isWorking)
             fanWorks(false);
+    }
+    if (isDisplayOn && millis() > msDisplayed + 5 * SEC)
+    {
+        isDisplayOn = false;
+        disp.clearDisplay();
+        disp.setPowerSave(1);
     }
 
     btnInterval.tick();
